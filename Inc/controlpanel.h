@@ -106,7 +106,7 @@ uint8_t rise, stay, fall;
 
 
 /* Function prototypes */
-void extract_arg(CMD_MODE_t *cmd);
+void extract_arg(CMD_MODE_t *cmd, char * received_command);
 void usb_print(char * msg);
 void uart_print(char * msg);
 char * get_time(uint32_t start_ms);

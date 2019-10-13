@@ -961,6 +961,8 @@ void vTaskTCPinit(void const * argument){
 				NETCONN_COPY);
 	}
 
+	vTaskResume(xTaskReceivedDataHandle);
+
 	 SEGGER_SYSVIEW_Conf();
 	 SEGGER_SYSVIEW_Start();
 

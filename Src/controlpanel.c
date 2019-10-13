@@ -98,19 +98,41 @@ void vTaskReceivedData(void *p){
 	CMD_MODE_t *command_mode;
 	uint32_t ulNotifiedValue = 0x0;
 
+	struct netbuf* buffer;
+	void* data;
+	u16_t len;
+	err_t recv_err;
+
+	vTaskSuspend(NULL);
+
 	while(1){
 
-		if (xTaskNotifyWait(0xFFFFFFFF, 0, &ulNotifiedValue, portMAX_DELAY) == pdTRUE) {
 
-			command_mode = (CMD_MODE_t*) pvPortMalloc(sizeof(CMD_MODE_t));
-			extract_arg(command_mode);
+		//Obsluga polaczenia
+		if (accept_err == ERR_OK) {
 
-			memset(received_command, '\0', sizeof(received_command));
-			memset(usr_msg, '\0', sizeof(usr_msg));
-			sprintf(usr_msg, "Oderana wiadomosc : %d  %d  %d  %d  %d\r\n",
-					command_mode->num, command_mode->arg, command_mode->rise_time, command_mode->stay_time, command_mode->fall_time);
+			while ((recv_err = netconn_recv(newconn, &buffer)) == ERR_OK) {
 
-			CDC_Transmit_FS(usr_msg, strlen(usr_msg));
+				do {
+
+					netbuf_data(buffer, &data, &len);
+
+				} while (netbuf_next(buffer) >= 0);
+
+				netbuf_delete(buffer);
+
+				command_mode = (CMD_MODE_t*) pvPortMalloc(sizeof(CMD_MODE_t));
+				extract_arg(command_mode, data);
+
+				memset(usr_msg, '\0', sizeof(usr_msg));
+				sprintf(usr_msg, "Oderana wiadomosc : %d  %d  %d  %d  %d\r\n",
+						command_mode->num, command_mode->arg,
+						command_mode->rise_time, command_mode->stay_time,
+						command_mode->fall_time);
+
+
+				netconn_write(newconn, usr_msg, strlen(usr_msg), NETCONN_COPY);
+
 
 			switch (command_mode->num) {
 
@@ -202,6 +224,7 @@ void vTaskReceivedData(void *p){
 				break;
 			}
 			case START_PWM: {
+				HAL_GPIO_TogglePin(LED_BLUE_GPIO_Port, LED_BLUE_Pin);
 				duty = 0;
 				HAL_TIM_PWM_Start_DMA(&htim8, TIM_CHANNEL_1, &duty, 1);
 
@@ -220,9 +243,10 @@ void vTaskReceivedData(void *p){
 
 			vPortFree(command_mode);
 
-		} else {
+			}
 
 		}
+
 
 	}
 
@@ -468,7 +492,7 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) // tim2 trigger adc1 with
 }
 
 /****************************Additionals functions*****************************/
-void extract_arg(CMD_MODE_t *cmd){
+void extract_arg(CMD_MODE_t *cmd, char * received_command){
 
 	char argument[4];
 
@@ -522,7 +546,7 @@ void extract_arg(CMD_MODE_t *cmd){
 
 	memset(argument, '\0', sizeof(argument));
 	j = 0; i++;
-	while (received_command[i] != '>') {
+	while (received_command[i] != ']') {
 
 		argument[j] = received_command[i];
 		j++;
