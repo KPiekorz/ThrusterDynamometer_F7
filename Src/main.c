@@ -100,6 +100,7 @@ osThreadId defaultTaskHandle;
 /* USER CODE BEGIN PV */
 
 osThreadId xTaskTCPinitHandle;
+int cnt;
 
 /* USER CODE END PV */
 
@@ -178,6 +179,8 @@ int main(void)
   MX_TIM8_Init();
   /* USER CODE BEGIN 2 */
 
+  HAL_TIM_Base_Start_IT(&htim2);
+
   memset(uartf4_received, '\0', sizeof(uartf4_received));
   HAL_UART_Receive_DMA(&huart2, (uint8_t*) uartf4_received, UARTF4_TEMP_FRAME_SIZE);
 
@@ -225,9 +228,9 @@ int main(void)
 
   xTaskCreate(vTaskBLDC, "Task-BLDC", 500, NULL, 1, &xTaskBLDCHandle);
 
-  xTaskCreate(vTaskADC, "Task-ADC", 500, NULL, 2, &xTaskADCHandle);
+  xTaskCreate(vTaskADC, "Task-ADC", 500, NULL, 4, &xTaskADCHandle);
 
-  xTaskCreate(vTaskTempF4UART, "Task-Temp", 500, NULL, 2, &xTaskTempF4UARTHandle);
+  xTaskCreate(vTaskTempF4UART, "Task-Temp", 500, NULL, 5, &xTaskTempF4UARTHandle);
 
   xTaskCreate(vTaskTenso, "Task-Tenso", 500, NULL, 2, &xTaskTensoHandle);
 
@@ -340,7 +343,7 @@ static void MX_ADC1_Init(void)
   hadc1.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
   hadc1.Init.ExternalTrigConv = ADC_EXTERNALTRIGCONV_T2_TRGO;
   hadc1.Init.DataAlign = ADC_DATAALIGN_RIGHT;
-  hadc1.Init.NbrOfConversion = 4;
+  hadc1.Init.NbrOfConversion = 3;
   hadc1.Init.DMAContinuousRequests = ENABLE;
   hadc1.Init.EOCSelection = ADC_EOC_SEQ_CONV;
   if (HAL_ADC_Init(&hadc1) != HAL_OK)
@@ -368,14 +371,6 @@ static void MX_ADC1_Init(void)
   */
   sConfig.Channel = ADC_CHANNEL_6;
   sConfig.Rank = ADC_REGULAR_RANK_3;
-  if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /** Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time. 
-  */
-  sConfig.Channel = ADC_CHANNEL_TEMPSENSOR;
-  sConfig.Rank = ADC_REGULAR_RANK_4;
   if (HAL_ADC_ConfigChannel(&hadc1, &sConfig) != HAL_OK)
   {
     Error_Handler();
@@ -507,9 +502,6 @@ static void MX_RTC_Init(void)
   hrtc.Init.HourFormat = RTC_HOURFORMAT_12;
   hrtc.Init.AsynchPrediv = 127;
   hrtc.Init.SynchPrediv = 255;
-  hrtc.Init.OutPut = RTC_OUTPUT_DISABLE;
-  hrtc.Init.OutPutPolarity = RTC_OUTPUT_POLARITY_HIGH;
-  hrtc.Init.OutPutType = RTC_OUTPUT_TYPE_OPENDRAIN;
   if (HAL_RTC_Init(&hrtc) != HAL_OK)
   {
     Error_Handler();
@@ -539,9 +531,9 @@ static void MX_TIM2_Init(void)
 
   /* USER CODE END TIM2_Init 1 */
   htim2.Instance = TIM2;
-  htim2.Init.Prescaler = 1079;
+  htim2.Init.Prescaler = 107;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 9999;
+  htim2.Init.Period = 99;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
@@ -770,7 +762,7 @@ static void MX_TIM11_Init(void)
   htim11.Instance = TIM11;
   htim11.Init.Prescaler = 215;
   htim11.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim11.Init.Period = 1999;
+  htim11.Init.Period = 999;
   htim11.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim11.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim11) != HAL_OK)
@@ -954,13 +946,6 @@ void vTaskTCPinit(void const * argument){
 		}
 	}
 
-	if (accept_err == ERR_OK) {
-		strncpy(buffer, "", sizeof(buffer));
-		sprintf(buffer, "JEST POLACZENIE!!\r\n");
-		netconn_write(newconn, (const unsigned char* )buffer, strlen(buffer),
-				NETCONN_COPY);
-	}
-
 	vTaskResume(xTaskReceivedDataHandle);
 
 	 SEGGER_SYSVIEW_Conf();
@@ -989,15 +974,11 @@ void vTaskTCPinit(void const * argument){
 /* USER CODE END Header_StartDefaultTask */
 void StartDefaultTask(void const * argument)
 {
-    
-    
-                 
   /* init code for LWIP */
   MX_LWIP_Init();
 
   /* init code for USB_DEVICE */
   MX_USB_DEVICE_Init();
-
   /* USER CODE BEGIN 5 */
 
   osThreadId id;
@@ -1053,6 +1034,18 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 	  	configASSERT( xResult == pdPASS );
 		portYIELD_FROM_ISR(checkIfYieldRequired);
 
+  }else if(htim->Instance == TIM2){
+
+//	  cnt++;
+//	  if(cnt == 10){
+//
+//		  xResult = xTaskNotifyFromISR(xTaskADCHandle, 0, eNoAction, &checkIfYieldRequired);
+//
+//		  cnt = 0;
+//
+//	  	  configASSERT( xResult == pdPASS );
+//	  	  portYIELD_FROM_ISR(checkIfYieldRequired);
+//	  }
   }
   /* USER CODE END Callback 1 */
 }

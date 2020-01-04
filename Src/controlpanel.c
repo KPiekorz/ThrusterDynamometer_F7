@@ -24,9 +24,13 @@ const float SupplyVoltage = 3.0; // [Volts]
 const float ADCResolution = 4095.0;
 
 static uint32_t count_adc = 0;
-static uint16_t vibro_value_table[20];
-static uint16_t hal_value_table[20];
 
+static uint16_t vibro_value_table[VIBRO_TABLE_LEN];
+
+static uint16_t hal_value_table[HAL_TABLE_LEN];
+
+static uint32_t pausa_time;
+static uint32_t start_ms;
 
 
 /*
@@ -34,18 +38,18 @@ static uint16_t hal_value_table[20];
  */
 void vTaskSendData(void *p){
 
-	char sens_value_frame[1500];
+	char sens_value_frame[300];
 	uint16_t frame_length = 0;
 	uint32_t ulNotifiedValue = 0x0;
-	uint32_t start_ms = 0;
+	start_ms = 0;
+	pausa_time = 0;
 
 	if(xSemaphoreTake(xMutexSensValue, portMAX_DELAY) == 1){
 
-//		sens_value.vibro_value = 0;
-//		sens_value.hal_value = 0;
+		empty_table(sens_value.vibro_value, VIBRO_TABLE_LEN);
+		empty_table(sens_value.hal_value, HAL_TABLE_LEN);
 		sens_value.shunt_value = 0;
 		sens_value.tenso_value = 0;
-		sens_value.temp_F7 = 0;
 		strncpy(sens_value.temp, "", sizeof(sens_value.temp));
 
 		xSemaphoreGive(xMutexSensValue);
@@ -64,18 +68,27 @@ void vTaskSendData(void *p){
 				if (reset_time == 1){
 					start_ms = HAL_GetTick();
 					reset_time = 0;
+				}else if( pausa_time > 0) {
+						start_ms = HAL_GetTick() - pausa_time;
+						pausa_time = 0;
 				}
 
-				frame_length = sprintf(sens_value_frame, "<%s|%s|%d|%d|%d|%d|%d>\r\n",
-						get_time(start_ms), sens_value.temp, sens_value.vibro_value,
-						sens_value.shunt_value, sens_value.hal_value,
-						sens_value.tenso_value, sens_value.temp_F7);
+				frame_length = sprintf(sens_value_frame, "[%s|%s|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d|%d]",
+						get_time(start_ms), sens_value.temp,
+						sens_value.vibro_value[0], sens_value.vibro_value[1], sens_value.vibro_value[2], sens_value.vibro_value[3], sens_value.vibro_value[4], sens_value.vibro_value[5], sens_value.vibro_value[6], sens_value.vibro_value[7], sens_value.vibro_value[8], sens_value.vibro_value[9],
+						sens_value.shunt_value,
+						sens_value.hal_value[0], sens_value.hal_value[1], sens_value.hal_value[2], sens_value.hal_value[3], sens_value.hal_value[4], sens_value.hal_value[5], sens_value.hal_value[6], sens_value.hal_value[7], sens_value.hal_value[8], sens_value.hal_value[9],
+						sens_value.tenso_value);
 
 				if (accept_err == ERR_OK) {
 
 					netconn_write(newconn, (const unsigned char* )sens_value_frame, frame_length, NETCONN_COPY);
 
 				}
+
+				empty_table(sens_value.vibro_value, VIBRO_TABLE_LEN);
+				empty_table(sens_value.hal_value, HAL_TABLE_LEN);
+				sens_value.shunt_value = 0;
 
 				xSemaphoreGive(xMutexSensValue);
 			}
@@ -96,7 +109,6 @@ void vTaskSendData(void *p){
 void vTaskReceivedData(void *p){
 
 	CMD_MODE_t *command_mode;
-	uint32_t ulNotifiedValue = 0x0;
 
 	struct netbuf* buffer;
 	void* data;
@@ -108,145 +120,177 @@ void vTaskReceivedData(void *p){
 	while(1){
 
 
-		//Obsluga polaczenia
-		if (accept_err == ERR_OK) {
 
-			while ((recv_err = netconn_recv(newconn, &buffer)) == ERR_OK) {
+			//Obsluga polaczenia
+			if (accept_err == ERR_OK) {
 
-				do {
+				while ((recv_err = netconn_recv(newconn, &buffer)) == ERR_OK) {
 
-					netbuf_data(buffer, &data, &len);
+					do {
 
-				} while (netbuf_next(buffer) >= 0);
+						netbuf_data(buffer, &data, &len);
 
-				netbuf_delete(buffer);
+					} while (netbuf_next(buffer) >= 0);
 
-				command_mode = (CMD_MODE_t*) pvPortMalloc(sizeof(CMD_MODE_t));
-				extract_arg(command_mode, data);
+					netbuf_delete(buffer);
 
-				memset(usr_msg, '\0', sizeof(usr_msg));
-				sprintf(usr_msg, "Oderana wiadomosc : %d  %d  %d  %d  %d\r\n",
-						command_mode->num, command_mode->arg,
-						command_mode->rise_time, command_mode->stay_time,
-						command_mode->fall_time);
+					command_mode = (CMD_MODE_t*) pvPortMalloc(sizeof(CMD_MODE_t));
+					extract_arg(command_mode, data);
+
+					uart_print(data);
+
+				switch (command_mode->num) {
+
+				case START_COMMAND: {
+
+					HAL_ADC_Start_DMA(&hadc1, adcValue, 3);
+
+					HAL_TIM_Base_Start_IT(&htim11); // send
+	//				HAL_TIM_Base_Start_IT(&htim9); // tenso
+
+					HAL_GPIO_WritePin(LED_BLUE_GPIO_Port, LED_BLUE_Pin, GPIO_PIN_SET);
+
+					//pwm
+	//				duty = DUTY_MIN;
+	//				HAL_TIM_PWM_Start_DMA(&htim8, TIM_CHANNEL_1, &duty, 1);
+
+					break;
+				}
+				case STOP_COMMAND: {
+
+					HAL_GPIO_WritePin(LED_BLUE_GPIO_Port, LED_BLUE_Pin, GPIO_PIN_RESET);
+					HAL_GPIO_WritePin(LED_RED_GPIO_Port, LED_RED_Pin, GPIO_PIN_RESET);
 
 
-				netconn_write(newconn, usr_msg, strlen(usr_msg), NETCONN_COPY);
+					HAL_ADC_Stop_DMA(&hadc1);
+
+	//				HAL_TIM_Base_Stop_IT(&htim9);
+					reset_time = 1; HAL_TIM_Base_Stop_IT(&htim11);
+
+					HAL_TIM_PWM_Stop_DMA(&htim8, TIM_CHANNEL_1);
+
+					if(xSemaphoreTake(xMutexSensValue, portMAX_DELAY) == 1){
+
+						empty_table(sens_value.vibro_value, VIBRO_TABLE_LEN);
+						empty_table(sens_value.hal_value, HAL_TABLE_LEN);
+						sens_value.shunt_value = 0;
+						sens_value.tenso_value = 0;
+						strncpy(sens_value.temp, "", sizeof(sens_value.temp));
+
+						xSemaphoreGive(xMutexSensValue);
+					}
+
+					break;
+				}
+				case CHANGE_DUTY_COMMAND: {
+					duty = command_mode->arg;
+					break;
+				}
+				case TENSO_OFFSET_COMMAND: {
+					HX711_Tare(10);
+					break;
+				}
+				case TENSO_CALIBRATION_COMMAND: {
+					HX711_Calibration(command_mode->arg, HX711_Average_Value(10));
+					break;
+				}
+				case SHORT_TEST_COMMAND: {
+
+					if(xSemaphoreTake(xMutexBLDC, 0) == 1){
+
+						rise = command_mode->rise_time;
+						stay = command_mode->stay_time;
+						fall = command_mode->fall_time;
+
+						xTaskNotify(xTaskBLDCHandle, 0x1, eSetValueWithoutOverwrite);
+
+						xSemaphoreGive(xMutexBLDC);
+					}
+
+					break;
+				}
+				case LONG_TEST_COMMAND: {
+
+					if(xSemaphoreTake(xMutexBLDC, 0) == 1){
+
+						rise = command_mode->rise_time;
+						fall = command_mode->fall_time;
+
+						xTaskNotify(xTaskBLDCHandle, 0x2, eSetValueWithoutOverwrite);
+
+						xSemaphoreGive(xMutexBLDC);
+					}
+
+					break;
+				}
+				case THROTTLE_TEST_COMMAND: {
+
+					if(xSemaphoreTake(xMutexBLDC, 0) == 1){
+
+						rise = command_mode->rise_time;
+						fall = command_mode->fall_time;
+
+						xTaskNotify(xTaskBLDCHandle, 0x3, eSetValueWithoutOverwrite);
+
+						xSemaphoreGive(xMutexBLDC);
+					}
+
+					break;
+				}
+				case START_PWM: {
+
+					duty = 0;
+					HAL_TIM_PWM_Start_DMA(&htim8, TIM_CHANNEL_1, &duty, 1);
+
+					break;
+				}
+				case STOP_PWM: {
+					HAL_TIM_PWM_Stop_DMA(&htim8, TIM_CHANNEL_1);
+					break;
+				}
+				case PAUSE: {
+
+					// zatrzymuje pomiar z czujnikow, silnik jedzie dalej
+
+					HAL_ADC_Stop_DMA(&hadc1);
+					HAL_TIM_Base_Stop(&htim2);
+
+					HAL_TIM_Base_Stop_IT(&htim9);
+					HAL_TIM_Base_Stop_IT(&htim11);
+
+					pausa_time = (HAL_GetTick() - start_ms);
 
 
-			switch (command_mode->num) {
+					break;
+				}
+				case CONTINUE: {
 
-			case START_COMMAND: {
+					HAL_TIM_Base_Start(&htim2); // adc
+					HAL_ADC_Start_DMA(&hadc1, adcValue, 3);
 
-				HAL_TIM_Base_Start(&htim2); // adc
-				HAL_ADC_Start_DMA(&hadc1, adcValue, 4);
+					HAL_TIM_Base_Start_IT(&htim11); // send
+					HAL_TIM_Base_Start_IT(&htim9); // tenso
 
 
-				HAL_TIM_Base_Start_IT(&htim11); // send
-				HAL_TIM_Base_Start_IT(&htim9); // tenso
+					break;
+				}
+				default: {
 
-				break;
-			}
-			case STOP_COMMAND: {
-
-				HAL_ADC_Stop_DMA(&hadc1);
-				HAL_TIM_Base_Stop(&htim2);
-
-				HAL_TIM_Base_Stop_IT(&htim9);
-				reset_time = 1; HAL_TIM_Base_Stop_IT(&htim11);
-
-				if(xSemaphoreTake(xMutexSensValue, portMAX_DELAY) == 1){
-
-//					sens_value.vibro_value = 0;
-//					sens_value.hal_value = 0;
-					sens_value.shunt_value = 0;
-					sens_value.tenso_value = 0;
-					sens_value.temp_F7 = 0;
-
-					xSemaphoreGive(xMutexSensValue);
+					break;
 				}
 
-				break;
-			}
-			case CHANGE_DUTY_COMMAND: {
-				duty = command_mode->arg;
-				break;
-			}
-			case TENSO_OFFSET_COMMAND: {
-				HX711_Tare(10);
-				break;
-			}
-			case TENSO_CALIBRATION_COMMAND: {
-				HX711_Calibration(command_mode->arg, HX711_Average_Value(10));
-				break;
-			}
-			case SHORT_TEST_COMMAND: {
-
-				if(xSemaphoreTake(xMutexBLDC, 0) == 1){
-
-					rise = command_mode->rise_time;
-					stay = command_mode->stay_time;
-					fall = command_mode->fall_time;
-
-					xTaskNotify(xTaskBLDCHandle, 0x1, eSetValueWithoutOverwrite);
-
-					xSemaphoreGive(xMutexBLDC);
 				}
 
-				break;
-			}
-			case LONG_TEST_COMMAND: {
+				vPortFree(command_mode);
 
-				if(xSemaphoreTake(xMutexBLDC, 0) == 1){
-
-					rise = command_mode->rise_time;
-					fall = command_mode->fall_time;
-
-					xTaskNotify(xTaskBLDCHandle, 0x2, eSetValueWithoutOverwrite);
-
-					xSemaphoreGive(xMutexBLDC);
 				}
 
-				break;
-			}
-			case THROTTLE_TEST_COMMAND: {
-
-				if(xSemaphoreTake(xMutexBLDC, 0) == 1){
-
-					rise = command_mode->rise_time;
-					fall = command_mode->fall_time;
-
-					xTaskNotify(xTaskBLDCHandle, 0x3, eSetValueWithoutOverwrite);
-
-					xSemaphoreGive(xMutexBLDC);
-				}
-
-				break;
-			}
-			case START_PWM: {
-				HAL_GPIO_TogglePin(LED_BLUE_GPIO_Port, LED_BLUE_Pin);
-				duty = 0;
-				HAL_TIM_PWM_Start_DMA(&htim8, TIM_CHANNEL_1, &duty, 1);
-
-				break;
-			}
-			case STOP_PWM: {
-				HAL_TIM_PWM_Stop_DMA(&htim8, TIM_CHANNEL_1);
-				break;
-			}
-			default: {
-
-				break;
-			}
+				netconn_close(newconn);
+				netconn_delete(newconn);
 
 			}
 
-			vPortFree(command_mode);
-
-			}
-
-		}
-
+		accept_err = netconn_accept(conn, &newconn);
 
 	}
 
@@ -271,21 +315,11 @@ void vTaskADC(void *p){
 
 			if(xSemaphoreTake(xMutexSensValue, portMAX_DELAY) == 1){
 
-				Vsense = (SupplyVoltage*adcValue[3])/ADCResolution;
-				Temperature = ((Vsense-V25)/Avg_slope)+25;
+				sens_value.shunt_value = adcValue[1];
+				copy_table(vibro_value_table, sens_value.vibro_value, VIBRO_TABLE_LEN);		// vibro - adc1_ch3 - 10000Hz
+				copy_table(hal_value_table, sens_value.hal_value, HAL_TABLE_LEN);			// hal - adc1_ch6	  - 10000Hz
 
-				sens_value.temp_F7 = (int)Temperature;
-
-				/*
-				 * osobne tablice na dane z czujnikow w przerwniu i
-				 * tutaj zamiana na gotowy string do wyslania
-				 */
-
-//				sens_value.vibro_value = adcValue[0]; // vibro - adc1_ch3
-//				sens_value.shunt_value = adcValue[1]; // shunt - adc1_ch4
-//				sens_value.hal_value =   adcValue[2]; // hal - adc1_ch6
-
-
+				HAL_GPIO_TogglePin(LED_RED_GPIO_Port, LED_RED_Pin);
 
 				xSemaphoreGive(xMutexSensValue);
 			}
@@ -391,8 +425,8 @@ void vTaskTempF4UART(void *p){
 
 			if (xSemaphoreTake(xMutexSensValue, portMAX_DELAY) == 1) {
 
-				strncpy(sens_value.temp, "", sizeof(sens_value.temp));
 				strcpy(sens_value.temp, uartf4_received);
+
 				HAL_GPIO_TogglePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin);
 
 				xSemaphoreGive(xMutexSensValue);
@@ -422,7 +456,7 @@ void vTaskTenso(void *p){
 
 			if (xSemaphoreTake(xMutexSensValue, portMAX_DELAY) == 1) {
 
-				sens_value.tenso_value = HX711_Value_Gram();
+//				sens_value.tenso_value = HX711_Value_Gram();
 
 				xSemaphoreGive(xMutexSensValue);
 			}
@@ -471,24 +505,29 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) // tim2 trigger adc1 with
 {
 	BaseType_t checkIfYieldRequired = pdFALSE, xResult;
 
-	if( count_adc == 20){
+	count_adc++;
 
+	if (count_adc == 1) {
+		for (int i = 0; i < VIBRO_TABLE_LEN; i++) {
+			vibro_value_table[i] = 0;
+			hal_value_table[i] = 0;
+		}
+	}
+
+	//	vibro_value_table[count_adc-1] = adcValue[0];
+	//	hal_value_table[count_adc-1] = adcValue[2];
+
+	vibro_value_table[count_adc - 1]++;
+	hal_value_table[count_adc - 1]++;
+
+	if (count_adc == 5) {
 		xResult = xTaskNotifyFromISR(xTaskADCHandle, 0, eNoAction, &checkIfYieldRequired);
 
 		count_adc = 0;
 
 		configASSERT(xResult == pdPASS);
 		portYIELD_FROM_ISR(checkIfYieldRequired);
-
-	}else{
-
-		vibro_value_table[count_adc] = adcValue[0];
-		hal_value_table[count_adc] = adcValue[2];
-
 	}
-
-	count_adc++;
-
 }
 
 /****************************Additionals functions*****************************/
@@ -558,12 +597,12 @@ void extract_arg(CMD_MODE_t *cmd, char * received_command){
 
 }
 
-void usb_print(char * msg){
-	char msg_to_send[100];
-	memset(msg_to_send, '\0', sizeof(msg_to_send));
-	sprintf(msg_to_send, "%s\r\n", msg);
-	CDC_Transmit_FS(msg_to_send, strlen(msg_to_send));
-}
+//void usb_print(char * msg){
+//	char msg_to_send[100];
+//	memset(msg_to_send, '\0', sizeof(msg_to_send));
+//	sprintf(msg_to_send, "%s\r\n", msg);
+//	CDC_Transmit_FS(msg_to_send, strlen(msg_to_send));
+//}
 
 void uart_print(char * msg){
 	char msg_to_send[100];
@@ -582,9 +621,54 @@ char * get_time(uint32_t start_ms){
 	sec = (sys_tick_ms / 1000) % 60;
 
 	strncpy(current_time, "", sizeof(current_time));
-	sprintf(current_time, "%d:%d,%d", min, sec, milisec);
+	sprintf(current_time, "%d|%d|%d", min, sec, milisec);
 	return current_time;
 }
+
+void copy_table(uint16_t tab[], uint16_t tab_bufor[], uint8_t table_len){
+
+	for(int i = 0; i < table_len; i++){
+		tab_bufor[i] = tab[i];
+	}
+
+}
+
+void empty_table(uint16_t tab[], uint8_t table_len){
+
+	for(int i = 0; i < table_len; i++){
+		tab[i] = 0;
+	}
+
+}
+
+/* -------------------------------------- */
+char * make_frame(char * time, char * f4_sens, uint16_t vibro_table[VIBRO_TABLE_LEN], uint16_t shunt_value, uint16_t hal_table[HAL_TABLE_LEN], uint16_t tenso_value){
+	char sens_vlaue_frame[301];
+
+}
+
+char * int_to_string(uint16_t value){
+	uint16_t dzielnik = 1000;
+	char value_string[5];
+	uint8_t i = 0;
+
+	while(value > 0){
+		int cyfra = value%dzielnik;
+		if(cyfra == 0){
+			dzielnik /=10;
+		}else{
+			value_string[i] = (cyfra+48);
+			value %= dzielnik;
+			dzielnik /=10;
+			i++;
+		}
+	}
+
+	value_string[i] = '\n';
+
+	return value_string;
+}
+
 
 
 

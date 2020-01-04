@@ -71,20 +71,24 @@ typedef struct {
 #define THROTTLE_TEST_COMMAND			7
 #define START_PWM						8
 #define STOP_PWM						9
+#define PAUSE							10
+#define CONTINUE						11
 
 #define UARTF4_TEMP_FRAME_SIZE			50
 
 #define DUTY_MIN						25
 #define DUTY_MAX						95
 
+#define VIBRO_TABLE_LEN					10
+#define HAL_TABLE_LEN					10
+
 /* Variables */
 struct {
 	char temp[UARTF4_TEMP_FRAME_SIZE+1];
 	uint16_t tenso_value;
-	char vibro_value[200];
+	uint16_t vibro_value[VIBRO_TABLE_LEN];
 	uint16_t shunt_value;
-	char hal_value[200];
-	uint16_t temp_F7;
+	uint16_t hal_value[HAL_TABLE_LEN];
 } sens_value;
 
 char uartf4_received[UARTF4_TEMP_FRAME_SIZE+1];
@@ -97,7 +101,7 @@ uint16_t duty;
 float Temperature;
 float Vsense;
 
-uint32_t adcValue[4];
+uint32_t adcValue[3];
 
 uint8_t reset_time;
 char current_time[40];
@@ -110,7 +114,10 @@ void extract_arg(CMD_MODE_t *cmd, char * received_command);
 void usb_print(char * msg);
 void uart_print(char * msg);
 char * get_time(uint32_t start_ms);
-
+void copy_table(uint16_t tab[], uint16_t tab_bufor[], uint8_t table_len);
+void empty_table(uint16_t tab[], uint8_t table_len);
+char * make_frame(char * time, char * f4_sens, uint16_t vibro_table[VIBRO_TABLE_LEN], uint16_t shunt_value, uint16_t hal_table[HAL_TABLE_LEN], uint16_t tenso_value);
+char * int_to_string(uint16_t value);
 
 
 #endif /* CONTROLPANEL_H_ */
